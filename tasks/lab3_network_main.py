@@ -45,6 +45,11 @@ for start_node in network.nodes:
                     'SNR (dB)': snr_db
                 }, ignore_index=True)
 
+OUTPUT_FOLDER = ROOT / 'resources' / 'output'
+OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+
+file_output = OUTPUT_FOLDER / 'weighted_paths.csv'
+df.to_csv(file_output, index=False)
 # Display the DataFrame
 df.reset_index(drop=True, inplace=True)
 print(df)
