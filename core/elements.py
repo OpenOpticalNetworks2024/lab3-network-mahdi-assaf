@@ -58,7 +58,7 @@ class Node(object):
         self._label = label
         self._position = tuple(nodes['position'])
         self._connected_nodes = nodes['connected_nodes']
-        self._successive = {}
+        self._successive: dict[str, Line] = {}
 
     @property
     def label(self):
@@ -81,11 +81,13 @@ class Node(object):
         self._successive = value
 
     def propagate(self, signal_info):
+        if len(signal_info.path) == 1:
+            signal_info.update_path()
+            return
+        
+        next_line_label = signal_info.path[0]+ signal_info.path[1]
         signal_info.update_path()
-        if signal_info.path:
-            next_node_label = signal_info.path[0]
-            if next_node_label in self._successive:
-                self._successive[next_node_label].propagate(signal_info)
+        self._successive[next_line_label].propagate(signal_info)
 
 
 class Line(object):
@@ -113,6 +115,10 @@ class Line(object):
     def successive(self, successive: dict):
         self.successive = successive
 
+    def _get_next_node(self):
+        next_node_label = self._label[1]
+        return self._successive[next_node_label]
+    
     def latency_generation(self) -> float:
         return self._length / self.LIGHT_SPEED_IN_FIBER
 
@@ -121,22 +127,20 @@ class Line(object):
 
     def propagate(self, signal_info):
         # Update noise power and latency in signal information
-        signal_info.update_noise_power(self.noise_generation(signal_info.signal_power))
+        signal_power = signal_info.signal_power
+        signal_info.update_noise_power(self.noise_generation(signal_power))
         signal_info.update_latency(self.latency_generation())
-
-        # Continue propagation to the next node if specified
-        if signal_info.path:
-            next_node_label = signal_info.path[0]
-            if next_node_label in self._successive:
-                self._successive[next_node_label].propagate(signal_info)
+        
+        next_node = self._get_next_node()
+        next_node.propagate(signal_info)
 
 
 class Network(object):
     def __init__(self, nodes_file='nodes.json'):
         with open(nodes_file, 'r') as file:
             data = json.load(file)
-        self._nodes = {}
-        self._lines = {}
+        self._nodes:dict[str, Node] = {}
+        self._lines:dict[str, Line] = {}
 
         for label, attributes in data.items():
             node = Node(label, attributes)
@@ -162,18 +166,21 @@ class Network(object):
 
     def draw(self):
         plt.figure()
-        for node in self._nodes.values():
-            x, y = node.position
+        # Rename the loop variable to avoid overshadowing the imported 'node'
+        for nd in self._nodes.values():
+            x, y = nd.position
             plt.plot(x, y, 'bo')
-            plt.text(x, y, node.label, fontsize=12, ha='right')
-
-        for line in self._lines.values():
-            start_node = line.label[0]
-            end_node = line.label[1]
+            plt.text(x, y, nd.label, fontsize=12, ha='right')
+    
+        # Rename the loop variable to avoid overshadowing the imported 'line'
+        for ln in self._lines.values():
+            # For single-letter node labels:
+            start_node = ln.label[0]
+            end_node = ln.label[1]
             x_values = [self._nodes[start_node].position[0], self._nodes[end_node].position[0]]
             y_values = [self._nodes[start_node].position[1], self._nodes[end_node].position[1]]
             plt.plot(x_values, y_values, 'k-')
-
+    
         plt.xlabel('X Position (m)')
         plt.ylabel('Y Position (m)')
         plt.title('Network Topology')
@@ -209,26 +216,5 @@ class Network(object):
     # and returns the modified spectral information
     def propagate(self, signal_information):
         current_node_label = signal_information.path[0]
-
-        while signal_information.path:
-            current_node = self._nodes.get(current_node_label)
-            if current_node is None:
-                break
-
-            # Update path in Signal_information
-            signal_information.update_path()
-            next_node_label = signal_information.path[0] if signal_information.path else None
-
-            if next_node_label:
-                # Identify the line between current and next node
-                line_label = current_node_label + next_node_label
-                line = self._lines.get(line_label)
-
-                if line:
-                    line.propagate(signal_information)
-                    print(
-                        f"Line {line_label}: Latency = {signal_information.latency}, Noise Power = {signal_information.noise_power}")
-
-                current_node_label = next_node_label
-
-        return signal_information
+        node = self._nodes.get(current_node_label)
+        node.propagate(signal_information)
